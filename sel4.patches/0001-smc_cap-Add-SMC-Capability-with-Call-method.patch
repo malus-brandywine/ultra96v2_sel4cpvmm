@@ -1,0 +1,353 @@
+From 759809dab2cbef5bfbf94386f199ef4e15f98f32 Mon Sep 17 00:00:00 2001
+From: Alex Pavey <Alex.Pavey@dornerworks.com>
+Date: Mon, 8 Nov 2021 14:02:09 -0500
+Subject: [PATCH 1/3] smc_cap: Add SMC Capability with Call method
+
+Signed-off-by: Robbie VanVossen <robert.vanvossen@dornerworks.com>
+---
+ .../arch/arm/arch/64/mode/model/statedata.h   |  4 ++
+ .../arm/arch/64/mode/object/structures.bf     | 12 ++++
+ include/arch/arm/arch/object/smc.h            | 12 ++++
+ libsel4/arch_include/arm/sel4/arch/types.h    |  1 +
+ libsel4/include/sel4/bootinfo_types.h         |  7 +-
+ .../aarch64/interfaces/sel4arch.xml           | 24 +++++++
+ .../aarch64/sel4/sel4_arch/types.h            |  5 ++
+ libsel4/tools/syscall_stub_gen.py             |  2 +
+ src/arch/arm/64/object/objecttype.c           | 10 +++
+ src/arch/arm/config.cmake                     | 12 ++++
+ src/arch/arm/kernel/boot.c                    | 12 ++++
+ src/arch/arm/object/smc.c                     | 71 +++++++++++++++++++
+ 12 files changed, 169 insertions(+), 3 deletions(-)
+ create mode 100644 include/arch/arm/arch/object/smc.h
+ create mode 100644 src/arch/arm/object/smc.c
+
+diff --git a/include/arch/arm/arch/64/mode/model/statedata.h b/include/arch/arm/arch/64/mode/model/statedata.h
+index 163c4d05..2ee2cbf2 100644
+--- a/include/arch/arm/arch/64/mode/model/statedata.h
++++ b/include/arch/arm/arch/64/mode/model/statedata.h
+@@ -16,6 +16,10 @@
+ #include <arch/object/smmu.h>
+ #endif
+ 
++#ifdef CONFIG_ALLOW_SMC_CALLS
++#include <arch/object/smc.h>
++#endif
++
+ /* The top level asid mapping table */
+ extern asid_pool_t *armKSASIDTable[BIT(asidHighBits)] VISIBLE;
+ 
+diff --git a/include/arch/arm/arch/64/mode/object/structures.bf b/include/arch/arm/arch/64/mode/object/structures.bf
+index 2922c89f..c62918c9 100644
+--- a/include/arch/arm/arch/64/mode/object/structures.bf
++++ b/include/arch/arm/arch/64/mode/object/structures.bf
+@@ -154,6 +154,15 @@ block cb_cap {
+ 
+ #endif
+ 
++#ifdef CONFIG_ALLOW_SMC_CALLS
++block smc_cap {
++    padding        64
++
++    field capType  5
++    padding        59
++}
++#endif
++
+ -- NB: odd numbers are arch caps (see isArchCap())
+ tagged_union cap capType {
+     -- 5-bit tag caps
+@@ -190,6 +199,9 @@ tagged_union cap capType {
+     tag cb_control_cap              21
+     tag cb_cap                      23
+ #endif
++#ifdef CONFIG_ALLOW_SMC_CALLS
++    tag smc_cap                     25
++#endif
+ }
+ 
+ ---- Arch-independent object types
+diff --git a/include/arch/arm/arch/object/smc.h b/include/arch/arm/arch/object/smc.h
+new file mode 100644
+index 00000000..f94f4350
+--- /dev/null
++++ b/include/arch/arm/arch/object/smc.h
+@@ -0,0 +1,12 @@
++/*
++ * Copyright 2021, DornerWorks Ltd.
++ *
++ * SPDX-License-Identifier: GPL-2.0-only
++ */
++
++#pragma once
++
++#define NUM_SMC_REGS 8
++
++exception_t decodeARMSMCInvocation(word_t label, unsigned int length, cptr_t cptr,
++                                   cte_t *srcSlot, cap_t cap, bool_t call, word_t *buffer);
+diff --git a/libsel4/arch_include/arm/sel4/arch/types.h b/libsel4/arch_include/arm/sel4/arch/types.h
+index 62224e19..5882343f 100644
+--- a/libsel4/arch_include/arm/sel4/arch/types.h
++++ b/libsel4/arch_include/arm/sel4/arch/types.h
+@@ -22,6 +22,7 @@ typedef seL4_CPtr seL4_ARM_SIDControl;
+ typedef seL4_CPtr seL4_ARM_SID;
+ typedef seL4_CPtr seL4_ARM_CBControl;
+ typedef seL4_CPtr seL4_ARM_CB;
++typedef seL4_CPtr seL4_ARM_SMC;
+ 
+ typedef enum {
+     seL4_ARM_PageCacheable = 0x01,
+diff --git a/libsel4/include/sel4/bootinfo_types.h b/libsel4/include/sel4/bootinfo_types.h
+index 266aca01..f6a1d9ae 100644
+--- a/libsel4/include/sel4/bootinfo_types.h
++++ b/libsel4/include/sel4/bootinfo_types.h
+@@ -25,11 +25,12 @@ enum {
+     seL4_CapDomain              = 11, /* global domain controller cap */
+     seL4_CapSMMUSIDControl      = 12,  /*global SMMU SID controller cap, null cap if not supported*/
+     seL4_CapSMMUCBControl       = 13,  /*global SMMU CB controller cap, null cap if not supported*/
++    seL4_CapSMC                 = 14,  /*global SMC cap, null cap if not supported*/
+ #ifdef CONFIG_KERNEL_MCS
+-    seL4_CapInitThreadSC        = 14, /* initial thread's scheduling context cap */
+-    seL4_NumInitialCaps         = 15
++    seL4_CapInitThreadSC        = 15, /* initial thread's scheduling context cap */
++    seL4_NumInitialCaps         = 16
+ #else
+-    seL4_NumInitialCaps         = 14
++    seL4_NumInitialCaps         = 15
+ #endif /* !CONFIG_KERNEL_MCS */
+ };
+ 
+diff --git a/libsel4/sel4_arch_include/aarch64/interfaces/sel4arch.xml b/libsel4/sel4_arch_include/aarch64/interfaces/sel4arch.xml
+index 54935821..3c112699 100644
+--- a/libsel4/sel4_arch_include/aarch64/interfaces/sel4arch.xml
++++ b/libsel4/sel4_arch_include/aarch64/interfaces/sel4arch.xml
+@@ -44,6 +44,16 @@
+         <member name="tpidr_el0"/>
+         <member name="tpidrro_el0"/>
+     </struct>
++    <struct name="seL4_ARM_SMCContext">
++        <member name="x0"/>
++        <member name="x1"/>
++        <member name="x2"/>
++        <member name="x3"/>
++        <member name="x4"/>
++        <member name="x5"/>
++        <member name="x6"/>
++        <member name="x7"/>
++    </struct>
+     <interface name="seL4_ARM_VSpace" manual_name="Page Global Directory"
+         cap_description="Capability to the top level translation table being operated on.">
+         <method id="ARMVSpaceClean_Data" name="Clean_Data" manual_label="vspace_clean"
+@@ -361,4 +371,18 @@
+             </error>
+         </method>
+     </interface>
++    <interface name="seL4_ARM_SMC" manual_name="SMC" cap_description="Capability to allow threads to interact with SMC calls.">
++        <method id="ARMSMCCall" name="Call" manual_name="SMC Call" manual_label="smc_call">
++            <brief>
++                Tell the microkernel to make the real SMC call.
++            </brief>
++            <description>
++                <docref>See <autoref label="sec:read_write_registers"/></docref>
++            </description>
++            <param dir="in" name="smc_args" type="seL4_ARM_SMCContext"
++                description="The structure that has the provided arguments."/>
++            <param dir="out" name="smc_response" type="seL4_ARM_SMCContext"
++                description="The structure to capture the responses."/>
++        </method>
++    </interface>
+ </api>
+diff --git a/libsel4/sel4_arch_include/aarch64/sel4/sel4_arch/types.h b/libsel4/sel4_arch_include/aarch64/sel4/sel4_arch/types.h
+index b17561c9..39fd4b46 100644
+--- a/libsel4/sel4_arch_include/aarch64/sel4/sel4_arch/types.h
++++ b/libsel4/sel4_arch_include/aarch64/sel4/sel4_arch/types.h
+@@ -22,3 +22,8 @@ typedef struct seL4_UserContext_ {
+     /* Thread ID registers */
+     seL4_Word tpidr_el0, tpidrro_el0;
+ } seL4_UserContext;
++
++typedef struct seL4_ARM_SMCContext_ {
++    /* register arguments */
++    seL4_Word x0, x1, x2, x3, x4, x5, x6, x7;
++} seL4_ARM_SMCContext;
+diff --git a/libsel4/tools/syscall_stub_gen.py b/libsel4/tools/syscall_stub_gen.py
+index 3bc0ba68..a967cada 100644
+--- a/libsel4/tools/syscall_stub_gen.py
++++ b/libsel4/tools/syscall_stub_gen.py
+@@ -294,7 +294,9 @@ def init_arch_types(wordsize):
+             CapType("seL4_ARM_VCPU", wordsize),
+             CapType("seL4_ARM_IOSpace", wordsize),
+             CapType("seL4_ARM_IOPageTable", wordsize),
++            CapType("seL4_ARM_SMC", wordsize),
+             StructType("seL4_UserContext", wordsize * 36, wordsize),
++            StructType("seL4_ARM_SMCContext", wordsize * 8, wordsize),
+         ] + arm_smmu,
+ 
+         "arm_hyp": [
+diff --git a/src/arch/arm/64/object/objecttype.c b/src/arch/arm/64/object/objecttype.c
+index fa930a60..b2e44c54 100644
+--- a/src/arch/arm/64/object/objecttype.c
++++ b/src/arch/arm/64/object/objecttype.c
+@@ -108,6 +108,12 @@ deriveCap_ret_t Arch_deriveCap(cte_t *slot, cap_t cap)
+         ret.cap = cap;
+         ret.status = EXCEPTION_NONE;
+         return ret;
++#endif
++#ifdef CONFIG_ALLOW_SMC_CALLS
++    case cap_smc_cap:
++        ret.cap = cap;
++        ret.status = EXCEPTION_NONE;
++        return ret;
+ #endif
+     default:
+         /* This assert has no equivalent in haskell,
+@@ -495,6 +501,10 @@ exception_t Arch_decodeInvocation(word_t label, word_t length, cptr_t cptr,
+     case cap_cb_cap:
+         return decodeARMCBInvocation(label, length, cptr, slot, cap, call, buffer);
+ #endif /*CONFIG_ARM_SMMU*/
++#ifdef CONFIG_ALLOW_SMC_CALLS
++    case cap_smc_cap:
++        return decodeARMSMCInvocation(label, length, cptr, slot, cap, call, buffer);
++#endif
+     default:
+ #else
+ {
+diff --git a/src/arch/arm/config.cmake b/src/arch/arm/config.cmake
+index 32d9619b..a8446988 100644
+--- a/src/arch/arm/config.cmake
++++ b/src/arch/arm/config.cmake
+@@ -194,6 +194,17 @@ config_option(
+ )
+ mark_as_advanced(KernelAArch64SErrorIgnore)
+ 
++config_option(
++    KernelAllowSMCCalls ALLOW_SMC_CALLS "Allow virtualized guests to make SMC calls. \
++    WARNING: Some platforms require SMC calls to actually be made to boot VMs \
++    correctly, however allowing SMC calls causes a couple of issues. Since seL4 \
++    cannot pre-empt the supervisor the WCET is no longer guaranteed. Also, \
++    since the supervisor is a higher privilege level and can make any change \
++    in the system, the proofs can no longer be guaranteed."
++    DEFAULT OFF
++    DEPENDS "KernelArmHypervisorSupport"
++)
++
+ if(KernelAArch32FPUEnableContextSwitch OR KernelSel4ArchAarch64)
+     set(KernelHaveFPU ON)
+ endif()
+@@ -239,6 +250,7 @@ add_sources(
+         object/iospace.c
+         object/vcpu.c
+         object/smmu.c
++        object/smc.c
+         smp/ipi.c
+ )
+ 
+diff --git a/src/arch/arm/kernel/boot.c b/src/arch/arm/kernel/boot.c
+index 443e0fe9..b35098e5 100644
+--- a/src/arch/arm/kernel/boot.c
++++ b/src/arch/arm/kernel/boot.c
+@@ -162,6 +162,14 @@ BOOT_CODE static void init_smmu(cap_t root_cnode_cap)
+ 
+ #endif
+ 
++#ifdef CONFIG_ALLOW_SMC_CALLS
++BOOT_CODE static void init_smc(cap_t root_cnode_cap)
++{
++    /* Provide the SMC cap*/
++    write_slot(SLOT_PTR(pptr_of_cap(root_cnode_cap), seL4_CapSMC), cap_smc_cap_new());
++}
++#endif
++
+ /** This and only this function initialises the CPU.
+  *
+  * It does NOT initialise any kernel state.
+@@ -435,6 +443,10 @@ static BOOT_CODE bool_t try_init_kernel(
+     /* initialise the SMMU and provide the SMMU control caps*/
+     init_smmu(root_cnode_cap);
+ #endif
++#ifdef CONFIG_ALLOW_SMC_CALLS
++    init_smc(root_cnode_cap);
++#endif
++
+     populate_bi_frame(0, CONFIG_MAX_NUM_NODES, ipcbuf_vptr, extra_bi_size);
+ 
+     /* put DTB in the bootinfo block, if present. */
+diff --git a/src/arch/arm/object/smc.c b/src/arch/arm/object/smc.c
+new file mode 100644
+index 00000000..96765656
+--- /dev/null
++++ b/src/arch/arm/object/smc.c
+@@ -0,0 +1,71 @@
++/*
++ * Copyright 2021, DornerWorks Ltd.
++ *
++ * SPDX-License-Identifier: GPL-2.0-only
++ */
++#include <config.h>
++
++#ifdef CONFIG_ALLOW_SMC_CALLS
++#include <arch/object/smc.h>
++
++exception_t decodeARMSMCInvocation(word_t label, unsigned int length, cptr_t cptr,
++                                   cte_t *srcSlot, cap_t cap, bool_t call, word_t *buffer)
++{
++    word_t i;
++    seL4_Word arg[NUM_SMC_REGS];
++    word_t *ipcBuffer;
++
++    switch (label) {
++    case ARMSMCCall:
++        for (i = 0; i < NUM_SMC_REGS; i++) {
++            arg[i] = getSyscallArg(i, buffer);
++        }
++
++        ipcBuffer = lookupIPCBuffer(true, NODE_STATE(ksCurThread));
++
++        register seL4_Word r0 asm("x0") = arg[0];
++        register seL4_Word r1 asm("x1") = arg[1];
++        register seL4_Word r2 asm("x2") = arg[2];
++        register seL4_Word r3 asm("x3") = arg[3];
++        register seL4_Word r4 asm("x4") = arg[4];
++        register seL4_Word r5 asm("x5") = arg[5];
++        register seL4_Word r6 asm("x6") = arg[6];
++        register seL4_Word r7 asm("x7") = arg[7];
++        asm volatile("smc #0\n"
++                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3)
++                     : "r"(r4), "r"(r5), "r"(r6), "r"(r7)
++                     : "memory");
++
++        arg[0] = r0;
++        arg[1] = r1;
++        arg[2] = r2;
++        arg[3] = r3;
++        arg[4] = r4;
++        arg[5] = r5;
++        arg[6] = r6;
++        arg[7] = r7;
++
++        for (i = 0; i < n_msgRegisters; i++) {
++            setRegister(NODE_STATE(ksCurThread), msgRegisters[i], arg[i]);
++        }
++
++        if (ipcBuffer != NULL && i < NUM_SMC_REGS) {
++            for (; i < NUM_SMC_REGS; i++) {
++                ipcBuffer[i + 1] = arg[i];
++            }
++        }
++
++        setRegister(NODE_STATE(ksCurThread), msgInfoRegister, wordFromMessageInfo(
++                        seL4_MessageInfo_new(0, 0, 0, i)));
++
++        setThreadState(NODE_STATE(ksCurThread), ThreadState_Restart);
++        return EXCEPTION_NONE;
++
++    default:
++        userError("ARMSMCInvocation: Illegal operation.");
++        current_syscall_error.type = seL4_IllegalOperation;
++        return EXCEPTION_SYSCALL_ERROR;
++    }
++}
++
++#endif
+-- 
+2.17.1
+

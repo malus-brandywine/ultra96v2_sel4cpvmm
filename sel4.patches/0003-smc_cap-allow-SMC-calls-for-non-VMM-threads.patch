@@ -1,0 +1,50 @@
+From 8af2ca1b5c60204052b713d074c299e898c5d43f Mon Sep 17 00:00:00 2001
+From: Chris Guikema <chris.guikema@dornerworks.com>
+Date: Mon, 19 Dec 2022 13:44:21 -0500
+Subject: [PATCH 3/3] smc_cap: allow SMC calls for non-VMM threads
+
+Drivers may need to use SMC calls to configure hardware resources
+
+Signed-off-by: Robbie VanVossen <robert.vanvossen@dornerworks.com>
+---
+ src/arch/arm/64/object/objecttype.c | 2 +-
+ src/arch/arm/config.cmake           | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/arch/arm/64/object/objecttype.c b/src/arch/arm/64/object/objecttype.c
+index f28ae7b1..89f99c14 100644
+--- a/src/arch/arm/64/object/objecttype.c
++++ b/src/arch/arm/64/object/objecttype.c
+@@ -497,7 +497,7 @@ exception_t Arch_decodeInvocation(word_t label, word_t length, cptr_t cptr,
+     /* The C parser cannot handle a switch statement with only a default
+      * case. So we need to do some gymnastics to remove the switch if
+      * there are no other cases */
+-#if defined(CONFIG_ARM_HYPERVISOR_SUPPORT) || defined(CONFIG_ARM_SMMU)
++#if defined(CONFIG_ARM_HYPERVISOR_SUPPORT) || defined(CONFIG_ARM_SMMU) || defined(CONFIG_ALLOW_SMC_CALLS)
+     switch (cap_get_capType(cap)) {
+ #ifdef CONFIG_ARM_HYPERVISOR_SUPPORT
+     case cap_vcpu_cap:
+diff --git a/src/arch/arm/config.cmake b/src/arch/arm/config.cmake
+index a8446988..290d1b1f 100644
+--- a/src/arch/arm/config.cmake
++++ b/src/arch/arm/config.cmake
+@@ -195,14 +195,14 @@ config_option(
+ mark_as_advanced(KernelAArch64SErrorIgnore)
+ 
+ config_option(
+-    KernelAllowSMCCalls ALLOW_SMC_CALLS "Allow virtualized guests to make SMC calls. \
++    KernelAllowSMCCalls ALLOW_SMC_CALLS "Allow components to make SMC calls.
+     WARNING: Some platforms require SMC calls to actually be made to boot VMs \
+     correctly, however allowing SMC calls causes a couple of issues. Since seL4 \
+     cannot pre-empt the supervisor the WCET is no longer guaranteed. Also, \
+     since the supervisor is a higher privilege level and can make any change \
+     in the system, the proofs can no longer be guaranteed."
+     DEFAULT OFF
+-    DEPENDS "KernelArmHypervisorSupport"
++    DEPENDS "KernelSel4ArchAarch64"
+ )
+ 
+ if(KernelAArch32FPUEnableContextSwitch OR KernelSel4ArchAarch64)
+-- 
+2.17.1
+

@@ -1,0 +1,184 @@
+From 3b1b9d71e7ef2d618e32f2aeaeb23000973bcc31 Mon Sep 17 00:00:00 2001
+From: Alex Pavey <Alex.Pavey@dornerworks.com>
+Date: Tue, 30 Nov 2021 13:04:25 -0500
+Subject: [PATCH 2/3] smc_cap: Add badge handling to smc cap
+
+Signed-off-by: Alex Pavey <Alex.Pavey@dornerworks.com>
+---
+ .../arm/arch/64/mode/object/structures.bf     |  2 +-
+ src/arch/arm/64/object/objecttype.c           | 14 ++-
+ src/arch/arm/kernel/boot.c                    |  2 +-
+ src/arch/arm/object/smc.c                     | 94 +++++++++++--------
+ 4 files changed, 72 insertions(+), 40 deletions(-)
+
+diff --git a/include/arch/arm/arch/64/mode/object/structures.bf b/include/arch/arm/arch/64/mode/object/structures.bf
+index c62918c9..5b38928f 100644
+--- a/include/arch/arm/arch/64/mode/object/structures.bf
++++ b/include/arch/arm/arch/64/mode/object/structures.bf
+@@ -156,7 +156,7 @@ block cb_cap {
+ 
+ #ifdef CONFIG_ALLOW_SMC_CALLS
+ block smc_cap {
+-    padding        64
++    field capSMCBadge 64
+ 
+     field capType  5
+     padding        59
+diff --git a/src/arch/arm/64/object/objecttype.c b/src/arch/arm/64/object/objecttype.c
+index b2e44c54..f28ae7b1 100644
+--- a/src/arch/arm/64/object/objecttype.c
++++ b/src/arch/arm/64/object/objecttype.c
+@@ -124,7 +124,19 @@ deriveCap_ret_t Arch_deriveCap(cte_t *slot, cap_t cap)
+ 
+ cap_t CONST Arch_updateCapData(bool_t preserve, word_t data, cap_t cap)
+ {
+-    return cap;
++#ifdef CONFIG_ALLOW_SMC_CALLS
++    if (cap_get_capType(cap) == cap_smc_cap) {
++        if (!preserve && cap_smc_cap_get_capSMCBadge(cap) == 0) {
++            return cap_smc_cap_set_capSMCBadge(cap, data);
++        } else {
++            return cap_null_cap_new();
++        }
++    } else {
++#endif
++        return cap;
++#ifdef CONFIG_ALLOW_SMC_CALLS
++    }
++#endif
+ }
+ 
+ cap_t CONST Arch_maskCapRights(seL4_CapRights_t cap_rights_mask, cap_t cap)
+diff --git a/src/arch/arm/kernel/boot.c b/src/arch/arm/kernel/boot.c
+index b35098e5..911398a4 100644
+--- a/src/arch/arm/kernel/boot.c
++++ b/src/arch/arm/kernel/boot.c
+@@ -166,7 +166,7 @@ BOOT_CODE static void init_smmu(cap_t root_cnode_cap)
+ BOOT_CODE static void init_smc(cap_t root_cnode_cap)
+ {
+     /* Provide the SMC cap*/
+-    write_slot(SLOT_PTR(pptr_of_cap(root_cnode_cap), seL4_CapSMC), cap_smc_cap_new());
++    write_slot(SLOT_PTR(pptr_of_cap(root_cnode_cap), seL4_CapSMC), cap_smc_cap_new(0));
+ }
+ #endif
+ 
+diff --git a/src/arch/arm/object/smc.c b/src/arch/arm/object/smc.c
+index 96765656..01b60e17 100644
+--- a/src/arch/arm/object/smc.c
++++ b/src/arch/arm/object/smc.c
+@@ -8,55 +8,75 @@
+ #ifdef CONFIG_ALLOW_SMC_CALLS
+ #include <arch/object/smc.h>
+ 
+-exception_t decodeARMSMCInvocation(word_t label, unsigned int length, cptr_t cptr,
+-                                   cte_t *srcSlot, cap_t cap, bool_t call, word_t *buffer)
++static exception_t performSMCCall(word_t *buffer)
+ {
+     word_t i;
+     seL4_Word arg[NUM_SMC_REGS];
+     word_t *ipcBuffer;
+ 
+-    switch (label) {
+-    case ARMSMCCall:
+-        for (i = 0; i < NUM_SMC_REGS; i++) {
+-            arg[i] = getSyscallArg(i, buffer);
+-        }
++    for (i = 0; i < NUM_SMC_REGS; i++) {
++        arg[i] = getSyscallArg(i, buffer);
++    }
+ 
+-        ipcBuffer = lookupIPCBuffer(true, NODE_STATE(ksCurThread));
++    ipcBuffer = lookupIPCBuffer(true, NODE_STATE(ksCurThread));
+ 
+-        register seL4_Word r0 asm("x0") = arg[0];
+-        register seL4_Word r1 asm("x1") = arg[1];
+-        register seL4_Word r2 asm("x2") = arg[2];
+-        register seL4_Word r3 asm("x3") = arg[3];
+-        register seL4_Word r4 asm("x4") = arg[4];
+-        register seL4_Word r5 asm("x5") = arg[5];
+-        register seL4_Word r6 asm("x6") = arg[6];
+-        register seL4_Word r7 asm("x7") = arg[7];
+-        asm volatile("smc #0\n"
+-                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3)
+-                     : "r"(r4), "r"(r5), "r"(r6), "r"(r7)
+-                     : "memory");
++    register seL4_Word r0 asm("x0") = arg[0];
++    register seL4_Word r1 asm("x1") = arg[1];
++    register seL4_Word r2 asm("x2") = arg[2];
++    register seL4_Word r3 asm("x3") = arg[3];
++    register seL4_Word r4 asm("x4") = arg[4];
++    register seL4_Word r5 asm("x5") = arg[5];
++    register seL4_Word r6 asm("x6") = arg[6];
++    register seL4_Word r7 asm("x7") = arg[7];
++    asm volatile("smc #0\n"
++                 : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3)
++                 : "r"(r4), "r"(r5), "r"(r6), "r"(r7)
++                 : "memory");
+ 
+-        arg[0] = r0;
+-        arg[1] = r1;
+-        arg[2] = r2;
+-        arg[3] = r3;
+-        arg[4] = r4;
+-        arg[5] = r5;
+-        arg[6] = r6;
+-        arg[7] = r7;
++    arg[0] = r0;
++    arg[1] = r1;
++    arg[2] = r2;
++    arg[3] = r3;
++    arg[4] = r4;
++    arg[5] = r5;
++    arg[6] = r6;
++    arg[7] = r7;
+ 
+-        for (i = 0; i < n_msgRegisters; i++) {
+-            setRegister(NODE_STATE(ksCurThread), msgRegisters[i], arg[i]);
+-        }
++    for (i = 0; i < n_msgRegisters; i++) {
++        setRegister(NODE_STATE(ksCurThread), msgRegisters[i], arg[i]);
++    }
+ 
+-        if (ipcBuffer != NULL && i < NUM_SMC_REGS) {
+-            for (; i < NUM_SMC_REGS; i++) {
+-                ipcBuffer[i + 1] = arg[i];
+-            }
++    if (ipcBuffer != NULL && i < NUM_SMC_REGS) {
++        for (; i < NUM_SMC_REGS; i++) {
++            ipcBuffer[i + 1] = arg[i];
+         }
++    }
++    setRegister(NODE_STATE(ksCurThread), msgInfoRegister, wordFromMessageInfo(
++                    seL4_MessageInfo_new(0, 0, 0, i)));
+ 
+-        setRegister(NODE_STATE(ksCurThread), msgInfoRegister, wordFromMessageInfo(
+-                        seL4_MessageInfo_new(0, 0, 0, i)));
++    return EXCEPTION_NONE;
++}
++
++exception_t decodeARMSMCInvocation(word_t label, unsigned int length, cptr_t cptr,
++                                   cte_t *srcSlot, cap_t cap, bool_t call, word_t *buffer)
++{
++    word_t badge;
++    word_t smc_func_id;
++
++    switch (label) {
++    case ARMSMCCall:
++        badge = cap_smc_cap_get_capSMCBadge(cap);
++        smc_func_id = getSyscallArg(0, buffer);
++
++        if (badge == smc_func_id) {
++            performSMCCall(buffer);
++        } else if (badge == 0) {
++            performSMCCall(buffer);
++        } else {
++            userError("ARMSMCInvocation: Illegal operation.");
++            current_syscall_error.type = seL4_IllegalOperation;
++            return EXCEPTION_SYSCALL_ERROR;
++        }
+ 
+         setThreadState(NODE_STATE(ksCurThread), ThreadState_Restart);
+         return EXCEPTION_NONE;
+-- 
+2.17.1
+
