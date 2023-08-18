@@ -1,0 +1,121 @@
+From 6a1c8ef31edbb8302f242876b1e77a611c608e17 Mon Sep 17 00:00:00 2001
+From: Nataliya Korovkina <malus.brandywine@gmail.com>
+Date: Fri, 11 Aug 2023 16:54:28 -0400
+Subject: [PATCH] sel4.py: declare ARMSMCCall label
+
+Make syscall ARMSMCCall label explicitly declared
+
+Signed-off-by: Nataliya Korovkina <malus.brandywine@gmail.com>
+---
+ tool/sel4coreplat/sel4.py | 64 ++++++++++++++++++++-------------------
+ 1 file changed, 33 insertions(+), 31 deletions(-)
+
+diff --git a/tool/sel4coreplat/sel4.py b/tool/sel4coreplat/sel4.py
+index d3454ca..39d6780 100644
+--- a/tool/sel4coreplat/sel4.py
++++ b/tool/sel4coreplat/sel4.py
+@@ -748,44 +748,46 @@ class Sel4Label(IntEnum):
+     # ARM Page Directory
+     ARMPageDirectoryMap = 42
+     ARMPageDirectoryUnmap = 43
++    # ARM SMC call
++    ARMSMCCall = 44
+     # ARM Page Table
+-    ARMPageTableMap = 44
+-    ARMPageTableUnmap = 45
++    ARMPageTableMap = 45
++    ARMPageTableUnmap = 46
+     # ARM Page
+-    ARMPageMap = 46
+-    ARMPageUnmap = 47
+-    ARMPageClean_Data = 48
+-    ARMPageInvalidate_Data = 49
+-    ARMPageCleanInvalidate_Data = 50
+-    ARMPageUnify_Instruction = 51
+-    ARMPageGetAddress = 52
++    ARMPageMap = 47
++    ARMPageUnmap = 48
++    ARMPageClean_Data = 49
++    ARMPageInvalidate_Data = 50
++    ARMPageCleanInvalidate_Data = 51
++    ARMPageUnify_Instruction = 52
++    ARMPageGetAddress = 53
+     # ARM ASID
+-    ARMASIDControlMakePool = 53
+-    ARMASIDPoolAssign = 54
++    ARMASIDControlMakePool = 54
++    ARMASIDPoolAssign = 55
+     # ARM VCPU
+-    ARMVCPUSetTCB = 55
+-    ARMVCPUInjectIRQ = 56
+-    ARMVCPUReadReg = 57
+-    ARMVCPUWriteReg = 58
+-    ARMVCPUAckVPPI = 59
++    ARMVCPUSetTCB = 56
++    ARMVCPUInjectIRQ = 57
++    ARMVCPUReadReg = 58
++    ARMVCPUWriteReg = 59
++    ARMVCPUAckVPPI = 60
+     # ARM IRQ
+-    ARMIRQIssueIRQHandlerTrigger = 60
++    ARMIRQIssueIRQHandlerTrigger = 61
+     # RISC-V Page Table
+-    RISCVPageTableMap = 61
+-    RISCVPageTableUnmap = 62
++    RISCVPageTableMap = 62
++    RISCVPageTableUnmap = 63
+     # RISC-V Page
+-    RISCVPageMap = 63
+-    RISCVPageUnmap = 64
+-    RISCVPageGetAddress = 65
++    RISCVPageMap = 64
++    RISCVPageUnmap = 65
++    RISCVPageGetAddress = 66
+     # RISC-V ASID
+-    RISCVASIDControlMakePool = 66
+-    RISCVASIDPoolAssign = 67
++    RISCVASIDControlMakePool = 67
++    RISCVASIDPoolAssign = 68
+     # RISC-V IRQ
+-    RISCVIRQIssueIRQHandlerTrigger = 68
++    RISCVIRQIssueIRQHandlerTrigger = 69
+     # RISC-V VCPU
+-    RISCVVCPUSetTCB = 69
+-    RISCVVCPUReadReg = 70
+-    RISCVVCPUWriteReg = 71
++    RISCVVCPUSetTCB = 70
++    RISCVVCPUReadReg = 71
++    RISCVVCPUWriteReg = 72
+ 
+     def get_id(self, kernel_config: KernelConfig) -> int:
+         if kernel_config.arch == KernelArch.AARCH64:
+@@ -820,7 +822,7 @@ AARCH64_LABELS = {
+     # ARM Page Directory
+     Sel4Label.ARMPageDirectoryMap: 42,
+     Sel4Label.ARMPageDirectoryUnmap: 43,
+-#    Sel4Label.ARMSMCCall: 44,
++    Sel4Label.ARMSMCCall: 44,
+     # ARM Page table
+     Sel4Label.ARMPageTableMap: 45,
+     Sel4Label.ARMPageTableUnmap: 46,
+@@ -850,7 +852,7 @@ AARCH64_PA_44_HYP_LABELS = {
+     # ARM Page Directory
+     Sel4Label.ARMPageDirectoryMap: 42,
+     Sel4Label.ARMPageDirectoryUnmap: 43,
+-#    Sel4Label.ARMSMCCall: 44,
++    Sel4Label.ARMSMCCall: 44,
+     # ARM Page table
+     Sel4Label.ARMPageTableMap: 45,
+     Sel4Label.ARMPageTableUnmap: 46,
+@@ -883,7 +885,7 @@ AARCH64_PA_40_HYP_LABELS = {
+     # ARM Page Directory
+     Sel4Label.ARMPageDirectoryMap: 40,
+     Sel4Label.ARMPageDirectoryUnmap: 41,
+-#    Sel4Label.ARMSMCCall: 42,
++    Sel4Label.ARMSMCCall: 42,
+     # ARM Page table
+     Sel4Label.ARMPageTableMap: 43,
+     Sel4Label.ARMPageTableUnmap: 44,
+-- 
+2.17.1
+

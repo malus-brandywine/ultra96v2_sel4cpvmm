@@ -1,0 +1,105 @@
+From 57ea4b82f49b60f8803bcda53c26cd518b8f9fbc Mon Sep 17 00:00:00 2001
+From: Nataliya Korovkina <malus.brandywine@gmail.com>
+Date: Wed, 9 Aug 2023 14:41:27 -0400
+Subject: [PATCH] aarch64/SMC cap: add a check in use of PD's "smc"
+
+Allow to use PD's property "smc" only if SMCCall API is allowed in seL4:
+"KernelAllowSMCCalls" is set in board info. If API is not allowed, "smc"
+is set to False.
+
+Signed-off-by: Nataliya Korovkina <malus.brandywine@gmail.com>
+---
+ tool/sel4coreplat/__main__.py | 4 ++++
+ tool/sel4coreplat/sel4.py     | 1 +
+ tool/sel4coreplat/sysxml.py   | 7 ++++++-
+ tool/test/__init__.py         | 3 ++-
+ 4 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/tool/sel4coreplat/__main__.py b/tool/sel4coreplat/__main__.py
+index de83e64..42105fb 100644
+--- a/tool/sel4coreplat/__main__.py
++++ b/tool/sel4coreplat/__main__.py
+@@ -1943,6 +1943,8 @@ def main() -> int:
+     else:
+         arm_pa_size_bits = None
+ 
++    aarch64_smc_calls = sel4_config.get("ALLOW_SMC_CALLS", False)
++
+     kernel_config = KernelConfig(
+         arch = arch,
+         word_size = sel4_config["WORD_SIZE"],
+@@ -1954,6 +1956,7 @@ def main() -> int:
+         fan_out_limit = int(sel4_config["RETYPE_FAN_OUT_LIMIT"]),
+         have_fpu = sel4_config["HAVE_FPU"],
+         hyp_mode = hyp_mode,
++        aarch64_smc_calls = aarch64_smc_calls,
+         num_cpus = int(sel4_config["MAX_NUM_NODES"]),
+         # @ivanv: Perhaps there is a better way of seperating out arch specific config and regular config
+         arm_pa_size_bits = arm_pa_size_bits,
+@@ -1965,6 +1968,7 @@ def main() -> int:
+         page_sizes = (0x1_000, 0x200_000),
+         num_cpus = kernel_config.num_cpus,
+         kernel_is_hypervisor = kernel_config.hyp_mode,
++        aarch64_smc_calls_allowed = kernel_config.aarch64_smc_calls,
+     )
+     system_description = xml2system(args.system, default_platform_description)
+ 
+diff --git a/tool/sel4coreplat/sel4.py b/tool/sel4coreplat/sel4.py
+index 2fec782..d3454ca 100644
+--- a/tool/sel4coreplat/sel4.py
++++ b/tool/sel4coreplat/sel4.py
+@@ -62,6 +62,7 @@ class KernelConfig:
+     fan_out_limit: int
+     have_fpu: bool
+     hyp_mode: bool
++    aarch64_smc_calls: bool
+     num_cpus: int
+     arm_pa_size_bits: Optional[int]
+     riscv_page_table_levels: Optional[int]
+diff --git a/tool/sel4coreplat/sysxml.py b/tool/sel4coreplat/sysxml.py
+index 95922f1..42cdb84 100644
+--- a/tool/sel4coreplat/sysxml.py
++++ b/tool/sel4coreplat/sysxml.py
+@@ -43,6 +43,7 @@ class PlatformDescription:
+     page_sizes: Tuple[int, ...]
+     num_cpus: int
+     kernel_is_hypervisor: bool
++    aarch64_smc_calls_allowed: bool
+ 
+ 
+ class LineNumberingParser(ET.XMLParser):
+@@ -318,7 +319,11 @@ def xml2pd(pd_xml: ET.Element, plat_desc: PlatformDescription, is_child: bool=Fa
+ 
+     pp = str_to_bool(pd_xml.attrib.get("pp", "false"))
+     passive = str_to_bool(pd_xml.attrib.get("passive", "false"))
+-    smc = str_to_bool(pd_xml.attrib.get("smc", "false"))
++
++    if plat_desc.aarch64_smc_calls_allowed:
++        smc = str_to_bool(pd_xml.attrib.get("smc", "false"))
++    else:
++        smc = False;
+ 
+     maps = []
+     irqs = []
+diff --git a/tool/test/__init__.py b/tool/test/__init__.py
+index 235dbed..52d1e9a 100644
+--- a/tool/test/__init__.py
++++ b/tool/test/__init__.py
+@@ -15,6 +15,7 @@ plat_desc = PlatformDescription(
+     # For the tests we just decide a value for this.
+     num_cpus = 4,
+     kernel_is_hypervisor = True,
++    aarch64_smc_calls_allowed = False,
+ )
+ 
+ def _file(filename: str) -> Path:
+@@ -162,4 +163,4 @@ class SystemParseTests(ExtendedTestCase):
+         self._check_error("sys_map_not_aligned.xml", "Invalid vaddr alignment on 'map' @ ")
+ 
+     def test_too_many_pds(self):
+-        self._check_error("sys_too_many_pds.xml", "Too many protection domains (64) defined. Maximum is 63.")
+\ No newline at end of file
++        self._check_error("sys_too_many_pds.xml", "Too many protection domains (64) defined. Maximum is 63.")
+-- 
+2.17.1
+
